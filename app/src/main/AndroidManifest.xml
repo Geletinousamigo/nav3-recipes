@@ -143,6 +143,10 @@
             android:theme="@style/Theme.Nav3Recipes">
         </activity>
         <activity
+            android:name=".scenes.collapsiblescene.CollapsibleSceneActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Nav3Recipes"/>
+        <activity
             android:name=".deeplink.basic.MainActivity"
             android:exported="true"
             android:theme="@style/Theme.Nav3Recipes">
