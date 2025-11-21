@@ -91,7 +91,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.fontscaling.MathUtils.lerp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -105,7 +104,6 @@ enum class MinimizeState {
     Expanded,
     Minimized
 }
-
 
 /**
  * Public read-only state of the Minimize layout.
@@ -148,6 +146,7 @@ sealed class MinimizeLayoutState {
         predictiveBack: Boolean = false
     )
 }
+
 /**
  * Mutable implementation of [MinimizeLayoutState].
  */
@@ -155,8 +154,7 @@ sealed class MinimizeLayoutState {
 class MutableMinimizeLayoutState(
     initialValue: MinimizeState,
     private val animSpec: AnimationSpec<Float> = tween(300)
-) : MinimizeLayoutState()
-{
+) : MinimizeLayoutState() {
 
     override val animationSpec get() = animSpec
 
@@ -191,16 +189,6 @@ class MutableMinimizeLayoutState(
             else ->
                 anchoredState.progress(from = MinimizeState.Expanded, to = MinimizeState.Minimized)
         }
-
-
-//        get() = if (isPredictiveBackInProgress) {
-//            // During predictive back, driven by transitionFraction we set in seekTo
-//            transitionState.fraction
-//        } else {
-//            // Otherwise prefer the draggable progress (physical) to drive UI.
-//            // This keeps UI consistent during programmatic drags/animations.
-//            anchoredState.progress(from = MinimizeState.Minimized, to = MinimizeState.Expanded)
-//        }
 
     override var isPredictiveBackInProgress by mutableStateOf(false)
         private set
@@ -317,79 +305,6 @@ fun rememberMinimizeLayoutState(
     }
 }
 
-
-//class MinimizeLayoutState(
-//    initialValue: MinimizeState,
-//    private val animationSpec: AnimationSpec<Float> = tween(300)
-//)
-//{
-//    // internal anchored draggable state
-//    val anchoredState = AnchoredDraggableState(initialValue = initialValue)
-//
-//    // Expose progres State
-//    val expandProgress: Float
-//        get() = anchoredState.progress(from = MinimizeState.Minimized, to = MinimizeState.Expanded)
-//
-//    val minimizeProgress: Float
-//        get() = anchoredState.progress(from = MinimizeState.Expanded, to = MinimizeState.Minimized)
-//
-//
-//    // Expose current settled (or target) value
-//    val currentValue: MinimizeState
-//        get() = anchoredState.currentValue
-//
-//    val targetValue: MinimizeState
-//        get() = anchoredState.targetValue
-//
-//    // The offset (px). Use requireOffset() after anchors are set.
-//    val offset: Float
-//        get() = anchoredState.requireOffset()
-//
-//
-//    fun requireOffset(): Float = anchoredState.requireOffset()
-//
-//    suspend fun animateTo(target: MinimizeState) {
-//        anchoredState.animateTo(target, animationSpec)
-//    }
-//
-//    suspend fun snapTo(target: MinimizeState) {
-//        anchoredState.snapTo(target)
-//    }
-//
-//    suspend fun settle() {
-//        anchoredState.settle(animationSpec)
-//    }
-//
-//    fun dispatchDelta(delta: Float) {
-//        anchoredState.dispatchRawDelta(delta)
-//    }
-//
-//    // Update anchors dynamically (for example, after layout measurement)
-//    fun updateAnchors(anchors: DraggableAnchors<MinimizeState>) {
-//        anchoredState.updateAnchors(anchors)
-//    }
-//
-//    companion object {
-//        fun Saver(
-//            animationSpec: AnimationSpec<Float>
-//        ): Saver<MinimizeLayoutState, MinimizeState> = Saver(
-//            save = { it.currentValue },
-//            restore = { MinimizeLayoutState(it, animationSpec) }
-//        )
-//    }
-//}
-
-//@Composable
-//fun rememberMinimizeLayoutState(
-//    initialValue: MinimizeState = MinimizeState.Expanded,
-//    animationSpec: AnimationSpec<Float> = tween(300)
-//): MinimizeLayoutState {
-//    return rememberSaveable(
-//        saver = MinimizeLayoutState.Saver(animationSpec)
-//    ) {
-//        MinimizeLayoutState(initialValue = initialValue, animationSpec = animationSpec)
-//    }
-//}
 
 private class MinimizeAnchorsElement(
     private val state: MinimizeLayoutState,
@@ -699,7 +614,7 @@ fun FloatingMinimizeLayout(
                 scope.launch {
                     val tweenSpec = tween<Float>(
                         durationMillis = 300,
-                        easing = FastOutSlowInEasing // smooth start, gentle stop
+                        easing = FastOutSlowInEasing
                     )
                     val springSpec = spring<Float>(
                         dampingRatio = Spring.DampingRatioLowBouncy,
@@ -711,8 +626,6 @@ fun FloatingMinimizeLayout(
             }
         )
     }
-
-
 
     val offsetX = lerp(0f, pipX.value, progress)
     val offsetY = lerp(0f, pipY.value, progress)

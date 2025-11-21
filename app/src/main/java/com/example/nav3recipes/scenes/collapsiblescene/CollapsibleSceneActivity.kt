@@ -69,7 +69,7 @@ class CollapsibleSceneActivity : ComponentActivity() {
         setContent {
             var minimizableSceneType by remember {
                 mutableStateOf<MinimizeSceneType>(
-                    MinimizeSceneType.Bottom({})
+                    MinimizeSceneType.Floating({})
                 )
             }
             val minimizeLayoutState = rememberMinimizeLayoutState(
