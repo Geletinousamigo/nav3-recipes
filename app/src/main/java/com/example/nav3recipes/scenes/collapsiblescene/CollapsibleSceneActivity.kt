@@ -20,6 +20,9 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.IconToggleButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -177,50 +181,80 @@ class CollapsibleSceneActivity : ComponentActivity() {
 //                                        videoTitle = title,
 //                                        onDismiss = { backStack.removeLastOrNull() },
 //                                    )
-                                    var isPlaying by remember { mutableStateOf(false) }
+                                    var isPlaying by remember { mutableStateOf(true) }
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
-                                            .background(Color.Transparent)
+                                            .background(Color.Transparent),
                                     ) {
                                         Box(
                                             modifier = Modifier
-                                                .background(Color.DarkGray)
-                                                .align(Alignment.BottomCenter)
-                                                .height(48.dp)
+//                            .height(48.dp)
                                                 .fillMaxWidth()
-                                                .padding(8.dp),
+                                                .padding(4.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            IconButton(onClick = { isPlaying = !isPlaying }) {
+                                            IconToggleButton(
+                                                modifier = Modifier
+                                                    .scale(0.8f)
+                                                    .align(Alignment.TopStart),
+                                                checked = isPlaying,
+                                                onCheckedChange = { isPlaying = !isPlaying },
+                                                colors = IconButtonDefaults.filledIconToggleButtonColors(),
+                                                shape = IconButtonDefaults.filledShape
+                                            ) {
                                                 if (isPlaying) {
                                                     Icon(
                                                         imageVector = Icons.Default.Pause,
-                                                        contentDescription = "Pause",
-                                                        tint = Color.White
+                                                        contentDescription = "Pause"
                                                     )
                                                 } else {
                                                     Icon(
                                                         Icons.Default.PlayArrow,
                                                         contentDescription = "Play",
-                                                        tint = Color.White
                                                     )
                                                 }
                                             }
-
+                                            /*(
+                                                modifier = Modifier.align(Alignment.TopStart),
+                                                onClick = { state.playPauseToggle() },
+                                                colors = IconButtonDefaults.filledIconToggleButtonColors()
+                                            ) {
+                                                if (videoPlayerState.isPlaying) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Pause,
+                                                        contentDescription = "Pause",
+                                                        tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                                    )
+                                                } else {
+                                                    Icon(
+                                                        Icons.Default.PlayArrow,
+                                                        contentDescription = "Play",
+                                                        tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                                    )
+                                                }
+                                            }*/
+                                            IconButton(
+                                                modifier = Modifier
+                                                    .scale(0.8f)
+                                                    .align(Alignment.TopEnd),
+                                                onClick = { backStack.removeLastOrNull() },
+                                                colors = IconButtonDefaults.filledIconButtonColors(),
+                                                shape = IconButtonDefaults.filledShape
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Close,
+                                                    contentDescription = "Close",
+                                                )
+                                            }
                                         }
 
-
-                                        IconButton(
-                                            modifier = Modifier.align(Alignment.TopEnd),
-                                            onClick = { backStack.removeLastOrNull() }
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Close,
-                                                contentDescription = "Close",
-                                                tint = Color.White
-                                            )
-                                        }
+                                        LinearProgressIndicator(
+                                            progress = { 0.4f },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .align(Alignment.BottomCenter),
+                                        )
 
                                     }
                                 },
