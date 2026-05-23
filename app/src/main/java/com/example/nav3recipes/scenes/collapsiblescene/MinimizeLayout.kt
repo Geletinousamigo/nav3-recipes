@@ -29,9 +29,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.mandatorySystemGestures
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -69,6 +71,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Measurable
@@ -76,11 +79,14 @@ import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.node.LayoutModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.debugInspectorInfo
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -114,6 +120,7 @@ sealed class MinimizeLayoutState {
     abstract val animationSpec: AnimationSpec<Float>
     abstract val currentValue: MinimizeState
     abstract val targetValue: MinimizeState
+
     @get:FloatRange(from = 0.0, to = 1.0)
     abstract val progressFraction: Float
 
@@ -140,6 +147,7 @@ sealed class MinimizeLayoutState {
         target: MinimizeState,
         predictiveBack: Boolean
     )
+
     abstract suspend fun animateTo(
         target: MinimizeState,
         spec: AnimationSpec<Float> = animationSpec,
@@ -186,6 +194,7 @@ class MutableMinimizeLayoutState(
             currentValue == targetValue -> 0f
             targetValue == MinimizeState.Expanded ->
                 anchoredState.progress(from = MinimizeState.Minimized, to = MinimizeState.Expanded)
+
             else ->
                 anchoredState.progress(from = MinimizeState.Expanded, to = MinimizeState.Minimized)
         }
@@ -266,9 +275,6 @@ class MutableMinimizeLayoutState(
             transitionState.seekTo(clampedFraction, target)
         }
     }
-
-
-
 
 
     fun dispatchDelta(delta: Float) {
@@ -428,7 +434,8 @@ private fun Modifier.minimizeAnchors2(
             0f
         }
 
-        val heightPx = (fullHeightPx - xOffset.roundToInt()).coerceIn(minimizedPx, fullHeightPx).toInt()
+        val heightPx =
+            (fullHeightPx - xOffset.roundToInt()).coerceIn(minimizedPx, fullHeightPx).toInt()
 
         // measure child fixed to computed height
         val placeable = measurable.measure(
@@ -454,10 +461,21 @@ fun FloatingMinimizeLayout(
 ) {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
-    val config = LocalConfiguration.current
+    val containerSize =  LocalWindowInfo.current.containerSize
 
-    val screenWidthPx = with(density) { config.screenWidthDp.dp.toPx() }
-    val screenHeightPx = with(density) { config.screenHeightDp.dp.toPx() }
+    val screenWidthPx = containerSize.width.toFloat()
+    val screenHeightPx = containerSize.height.toFloat()
+
+    val systemBars = WindowInsets.mandatorySystemGestures
+    val layoutDirection = LocalLayoutDirection.current
+
+    val insetLeftPx = systemBars.getLeft(density, layoutDirection).toFloat()
+    val insetRightPx = systemBars.getRight(density, layoutDirection).toFloat()
+    val insetTopPx = systemBars.getTop(density).toFloat()
+    val insetBottomPx = systemBars.getBottom(density).toFloat()
+
+    val pipMarginPx = with(density) { 16.dp.toPx() }
+
 
     val isExpanded by remember(minimizeLayoutState.currentValue) {
         derivedStateOf { minimizeLayoutState.currentValue == MinimizeState.Expanded }
@@ -481,10 +499,20 @@ fun FloatingMinimizeLayout(
         orientation = Orientation.Vertical
     )
 
-    val progress by animateFloatAsState(
-        targetValue = if (isExpanded) 0f else 1f,
-        label = "minimizeProgress"
-    )
+    val progress by remember {
+        derivedStateOf {
+            minimizeLayoutState.anchoredState.progress(
+                from = MinimizeState.Expanded,
+                to = MinimizeState.Minimized
+            )
+        }
+    }
+
+
+//    val progress by animateFloatAsState(
+//        targetValue = if (isExpanded) 0f else 1f,
+//        label = "minimizeProgress"
+//    )
 
     // Expanded = full screen
     val expandedWidthPx = screenWidthPx
@@ -500,20 +528,32 @@ fun FloatingMinimizeLayout(
         else baseSize / 2f,
         label = "minimizedWidth"
     )
-    val targetMinimizedHeightPx = targetMinimizedWidthPx * 3f / 4f
+    val targetMinimizedHeightPx = targetMinimizedWidthPx * 9f / 16f
 
     val minimizedWidthPx = targetMinimizedWidthPx
     val minimizedHeightPx = targetMinimizedHeightPx
 
-    val widthPx = lerp(expandedWidthPx, minimizedWidthPx, progress)
-    val heightPx = lerp(expandedHeightPx, minimizedHeightPx, progress)
+    val widthPx = lerp(
+        expandedWidthPx,
+        minimizedWidthPx,
+        progress
+    )
+    val heightPx = lerp(
+        expandedHeightPx,
+        minimizedHeightPx,
+        progress
+    )
 
-    // padding for PiP margin
-    val paddingPx = with(density) { 16.dp.toPx() }
 
     // default bottom-end corner
-    val initialPipX = (screenWidthPx - minimizedWidthPx - paddingPx).coerceAtLeast(paddingPx)
-    val initialPipY = (screenHeightPx - minimizedHeightPx - paddingPx).coerceAtLeast(paddingPx)
+    val initialPipX =
+        (screenWidthPx - minimizedWidthPx - insetRightPx - pipMarginPx)
+            .coerceAtLeast(insetLeftPx + pipMarginPx)
+
+    val initialPipY =
+        (screenHeightPx - minimizedHeightPx - insetBottomPx - pipMarginPx)
+            .coerceAtLeast(insetTopPx + pipMarginPx)
+
 
     // Animatable x/y for PiP
     val pipX = remember { Animatable(0f) }
@@ -527,13 +567,19 @@ fun FloatingMinimizeLayout(
     }
 
     LaunchedEffect(targetMinimizedWidthPx, targetMinimizedHeightPx, screenWidthPx, screenHeightPx) {
-        val padding = paddingPx
 
-        val maxX = (screenWidthPx - targetMinimizedWidthPx - padding).coerceAtLeast(padding)
-        val maxY = (screenHeightPx - targetMinimizedHeightPx - padding).coerceAtLeast(padding)
+        val maxX =
+            screenWidthPx - targetMinimizedWidthPx - insetRightPx - pipMarginPx
 
-        val newX = pipX.value.coerceIn(padding, maxX)
-        val newY = pipY.value.coerceIn(padding, maxY)
+        val maxY =
+            screenHeightPx - targetMinimizedHeightPx - insetBottomPx - pipMarginPx
+
+        val minX = insetLeftPx + pipMarginPx
+        val minY = insetTopPx + pipMarginPx
+
+        val newX = (pipX.value).coerceIn(minX, maxX)
+        val newY = (pipY.value).coerceIn(minY, maxY)
+
 
         scope.launch {
             pipX.snapTo(newX)
@@ -590,10 +636,13 @@ fun FloatingMinimizeLayout(
             onDrag = { change, dragAmount ->
                 lastDragDelta = Offset(dragAmount.x, dragAmount.y) // track last delta
 
-                val newX = (pipX.value + dragAmount.x)
-                    .coerceIn(paddingPx, screenWidthPx - minimizedWidthPx - paddingPx)
-                val newY = (pipY.value + dragAmount.y)
-                    .coerceIn(paddingPx, screenHeightPx - minimizedHeightPx - paddingPx)
+                val minX = insetLeftPx + pipMarginPx
+                val maxX = screenWidthPx - minimizedWidthPx - insetRightPx - pipMarginPx
+                val minY = insetTopPx + pipMarginPx
+                val maxY = screenHeightPx - minimizedHeightPx - insetBottomPx - pipMarginPx
+
+                val newX = (pipX.value + dragAmount.x).coerceIn(minX, maxX)
+                val newY = (pipY.value + dragAmount.y).coerceIn(minY, maxY)
 
                 scope.launch {
                     pipX.snapTo(newX)
@@ -606,10 +655,14 @@ fun FloatingMinimizeLayout(
                 val horizontalPref = if (lastDragDelta.x < 0) "left" else "right"
                 val verticalPref = if (lastDragDelta.y < 0) "top" else "bottom"
 
-                val targetX = if (horizontalPref == "left") paddingPx
-                else screenWidthPx - minimizedWidthPx - paddingPx
-                val targetY = if (verticalPref == "top") paddingPx
-                else screenHeightPx - minimizedHeightPx - paddingPx
+                val targetX =
+                    if (horizontalPref == "left") insetLeftPx + pipMarginPx
+                    else screenWidthPx - minimizedWidthPx - insetRightPx - pipMarginPx
+
+                val targetY =
+                    if (verticalPref == "top") insetTopPx + pipMarginPx
+                    else screenHeightPx - minimizedHeightPx - insetBottomPx - pipMarginPx
+
 
                 scope.launch {
                     val tweenSpec = tween<Float>(
@@ -636,6 +689,13 @@ fun FloatingMinimizeLayout(
         Box(
             modifier = Modifier
                 .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
+                .clip(RoundedCornerShape(
+                    lerp(
+                        0.dp,
+                        12.dp,
+                        progress
+                    )
+                ))
                 .size(
                     with(density) {
                         (widthPx).coerceIn(minimizedWidthPx, screenWidthPx).toDp()
@@ -644,8 +704,9 @@ fun FloatingMinimizeLayout(
                         (heightPx).coerceIn(minimizedHeightPx, screenHeightPx).toDp()
                     }
                 )
-                .clip(RoundedCornerShape(lerp(0.dp, 12.dp, progress)))
-                .then(if (progress < 0.5f) draggableModifier else pipDragModifier)
+                .graphicsLayer {
+                    transformOrigin = TransformOrigin(0.5f, 0f)
+                }
                 .combinedClickable(
                     indication = null,
                     interactionSource = null,
@@ -658,7 +719,7 @@ fun FloatingMinimizeLayout(
                     }
                 }
         ) {
-            minimizableContent(Modifier)
+            minimizableContent(Modifier.then(if (progress == 1f) pipDragModifier else draggableModifier))
         }
     }
 }
@@ -927,8 +988,9 @@ fun UnifiedVideoPlayerLayout(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        tonalElevation = 16.dp,
-        shadowElevation = 16.dp,
+        color = MaterialTheme.colorScheme.surface.copy(
+            alpha = expandProgress
+        )
     ) {
         Layout(
             content = {
@@ -960,13 +1022,25 @@ fun UnifiedVideoPlayerLayout(
 
                     layout(parentWidth, parentHeight) {
                         // --- Smooth animated scaling during drag ---
-                        val baseScale = lerp(1f, pipWidth.toFloat() / videoWidth, minimizeProgress)
+                        val baseScale = lerp(
+                            1f,
+                            pipWidth.toFloat() / videoWidth,
+                            minimizeProgress
+                        )
                         val scale =
                             if (minimizeProgress > hideThreshold) 1f // keep fullscreen at end
                             else baseScale
 
-                        val translationX = lerp(0f, pipX.toFloat(), minimizeProgress)
-                        val translationY = lerp(0f, pipY.toFloat(), minimizeProgress)
+                        val translationX = lerp(
+                            0f,
+                            pipX.toFloat(),
+                            minimizeProgress
+                        )
+                        val translationY = lerp(
+                            0f,
+                            pipY.toFloat(),
+                            minimizeProgress
+                        )
 
                         // --- VIDEO ---
                         videoPlaceable.placeRelativeWithLayer(0, 0) {
@@ -990,68 +1064,7 @@ fun UnifiedVideoPlayerLayout(
                             }
                         }
                     }
-                }
-
-
-                /* if (pipMode) {
-                     val videoPlaceable = measurables[0].measure(constraints)
-                     val contentPlaceable = measurables[1].measure(constraints)
-                     val minimizedPlaceable = measurables[2].measure(constraints)
-
-                     val parentWidth = constraints.maxWidth
-                     val parentHeight = constraints.maxHeight
-                     val videoWidth = videoPlaceable.width
-                     val videoHeight = videoPlaceable.height
-
- //                    val pipWidth = (videoWidth * 0.4f).toInt().coerceAtLeast(constraints.maxWidth)
- //                    val pipHeight = (videoHeight * 0.4f).toInt()
-                     val pipWidth = parentWidth
-                     val pipHeight = parentHeight
-
-                     val pipX = (parentWidth - pipWidth)
-                     val pipY = (parentHeight - pipHeight)
-
-                     val scale = lerp(1f, pipWidth.toFloat() / videoWidth, minimizeProgress)
- //                    val translationX = lerp(0f, pipX.toFloat(), minimizeProgress)
- //                    val translationY = lerp(0f, pipY.toFloat(), minimizeProgress)
-
-                     val hideThreshold = 0.9f
-
-                     layout(parentWidth, parentHeight) {
-                         // Video transformation
-                         val finalScale =
-                             if (minimizeProgress > hideThreshold) 1f else scale // Fullscreen in minimized mode
- //                        val finalTranslationX =
- //                            if (minimizeProgress > hideThreshold) 0f else translationX
- //                        val finalTranslationY =
- //                            if (minimizeProgress > hideThreshold) 0f else translationY
-
-                         videoPlaceable.placeRelativeWithLayer(0, 0) {
-                             scaleX = finalScale
-                             scaleY = finalScale
- //                            this.translationX = finalTranslationX
- //                            this.translationY = finalTranslationY
-                             transformOrigin = TransformOrigin(0f, 0f)
-                         }
-
-                         // Expanded content — visible only near expanded state
-                         if (expandProgress > (1f - hideThreshold)) {
-                             contentPlaceable.placeRelativeWithLayer(0, videoPlaceable.height) {
-                                 alpha = expandProgress
-                             }
-                         }
-
-                         // Minimized overlay — fullscreen overlay over video
-                         if (minimizeProgress > hideThreshold) {
-                             minimizedPlaceable.placeRelativeWithLayer(0, 0) {
-                                 alpha = minimizeProgress
-                             }
-                         }
-                     }
-                 }*/
-
-
-                else {
+                } else {
                     // ✅ Side-by-side behavior
                     val minimizableHeight = constraints.maxHeight
 
@@ -1103,137 +1116,6 @@ fun UnifiedVideoPlayerLayout(
     }
 }
 
-
-@Composable
-fun PiPVideoPlayerPage(
-    videoPlayer: @Composable () -> Unit,
-    content: @Composable ColumnScope.() -> Unit,
-    expandProgress: Float, // 1f = fully expanded, 0f = collapsed
-    minimizeProgress: Float, // 1f = fully minimized (PiP), 0f = expanded
-    pipSize: Dp = 250.dp,
-    pipOffset: DpOffset = DpOffset(16.dp, 16.dp),
-    modifier: Modifier = Modifier
-) {
-    val density = LocalDensity.current
-
-    Layout(
-        content = {
-            videoPlayer()
-            Column { content() }
-        },
-        modifier = modifier.fillMaxSize(),
-        measurePolicy = { measurables, constraints ->
-            val videoPlaceable = measurables[0].measure(
-                constraints.copy(minWidth = constraints.maxWidth, minHeight = constraints.maxHeight)
-            )
-            val contentPlaceable = measurables[1].measure(constraints)
-
-            layout(constraints.maxWidth, constraints.maxHeight) {
-                val screenWidth = constraints.maxWidth
-                val screenHeight = constraints.maxHeight
-
-                // PiP size in px
-                val pipSizePx = with(density) { pipSize.toPx() }
-                val pipOffsetXPx = with(density) { pipOffset.x.toPx() }
-                val pipOffsetYPx = with(density) { pipOffset.y.toPx() }
-
-                // Target PiP coordinates (bottom-end)
-                val pipX = screenWidth - pipSizePx - pipOffsetXPx
-                val pipY = screenHeight - pipSizePx - pipOffsetYPx
-
-                // Interpolate between full screen and PiP
-                val scale = lerp(1f, pipSizePx / videoPlaceable.width.toFloat(), minimizeProgress)
-                var translationX = lerp(0f, pipX, minimizeProgress)
-                var translationY = lerp(0f, pipY, minimizeProgress)
-
-                // Place single video instance
-                videoPlaceable.placeRelativeWithLayer(0, 0) {
-                    scaleX = scale
-                    scaleY = scale
-                    translationX = translationX
-                    translationY = translationY
-                    transformOrigin = TransformOrigin(0f, 0f)
-                }
-
-                // Content fades out as PiP takes over
-                contentPlaceable.placeRelativeWithLayer(0, videoPlaceable.height) {
-                    alpha = 1f - minimizeProgress
-                }
-            }
-        }
-    )
-}
-
-
-@Composable
-fun VideoPlayerPage(
-    videoPlayer: @Composable () -> Unit,
-    content: @Composable ColumnScope.() -> Unit,
-    minimizedContent: @Composable () -> Unit,
-    expandProgress: Float,
-    minimizeProgress: Float,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        tonalElevation = 16.dp,
-        shadowElevation = 16.dp,
-    ) {
-        Layout(
-            content = {
-                videoPlayer()
-                Column {
-                    content()
-                }
-                minimizedContent()
-            },
-            measurePolicy = { measurables, constraints ->
-                val minimizableHeight = constraints.maxHeight
-
-                val videoPlayerPlaceable =
-                    measurables[0].measure(constraints.copy(maxHeight = Constraints.Infinity))
-                val fullPagePlaceable = measurables[1].measure(constraints)
-
-                val videoPlayerScale =
-                    (minimizableHeight.toFloat() / videoPlayerPlaceable.height.toFloat()).coerceAtMost(
-                        1f
-                    )
-                val videoPlayerScaledWidth =
-                    (videoPlayerPlaceable.width * videoPlayerScale).toInt()
-
-                val minimizedPlaceable = measurables[2].measure(
-                    constraints.copy(
-                        maxHeight = minimizableHeight,
-                        maxWidth = constraints.maxWidth - videoPlayerScaledWidth,
-                        minWidth = 0
-                    )
-                )
-
-                layout(constraints.maxWidth, constraints.maxHeight) {
-                    videoPlayerPlaceable.placeRelativeWithLayer(0, 0) {
-                        if (videoPlayerPlaceable.height > minimizableHeight) {
-                            scaleX = videoPlayerScale
-                            scaleY = videoPlayerScale
-                            transformOrigin = TransformOrigin(0f, 0f)
-                        }
-                    }
-                    if (videoPlayerPlaceable.height <= minimizableHeight) {
-                        fullPagePlaceable.placeRelativeWithLayer(0, videoPlayerPlaceable.height) {
-                            alpha = when {
-                                expandProgress > 0f -> expandProgress
-                                minimizeProgress > 0f -> 1f - minimizeProgress
-                                else -> 0f
-                            }
-                        }
-                    } else {
-                        minimizedPlaceable.placeRelative(videoPlayerScaledWidth, 0)
-                    }
-                }
-            }
-        )
-    }
-}
-
 @Composable
 fun HomeScreen(
     selectedType: MinimizeSceneType,
@@ -1256,7 +1138,10 @@ fun HomeScreen(
                         }
                     }
                     SegmentedButton(
-                        shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                        shape = SegmentedButtonDefaults.itemShape(
+                            index = index,
+                            count = options.size
+                        ),
                         onClick = {
                             if (label == "Bottom")
                                 onSelect(MinimizeSceneType.Bottom({}))

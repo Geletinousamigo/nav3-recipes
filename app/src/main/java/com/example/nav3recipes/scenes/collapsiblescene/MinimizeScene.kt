@@ -7,8 +7,8 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -20,18 +20,27 @@ import androidx.navigation3.scene.SceneStrategyScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
+@JvmInline
+value class BackNavigationBehavior private constructor(val desc: String) {
+    override fun toString() = desc
+
+    companion object {
+        val MinimizeThenPop = BackNavigationBehavior("MinimizeThenPop")
+        val PopAlways = BackNavigationBehavior("PopAlways")
+    }
+}
 @Composable
 fun <T : Any> rememberMinimizeSceneStrategy(
     minimizeLayoutState: MinimizeLayoutState = rememberMinimizeLayoutState(),
-    minimizeType: MinimizeSceneType = MinimizeSceneType.Bottom({})
-//    backNavigationBehavior: BackNavigationBehavior =
-//        BackNavigationBehavior.PopUntilScaffoldValueChange,
-//    directive: PaneScaffoldDirective = calculatePaneScaffoldDirective(currentWindowAdaptiveInfo()),
+    minimizeType: MinimizeSceneType = MinimizeSceneType.Bottom({}),
+    backNavigationBehavior: BackNavigationBehavior =
+        BackNavigationBehavior.MinimizeThenPop,
 ): SceneStrategy<T> {
     return remember(minimizeLayoutState, minimizeType) {
         MinimizeSceneStrategy(
             minimizeLayoutState = minimizeLayoutState,
-            minimizeType = minimizeType
+            minimizeType = minimizeType,
+            backNavigationBehavior = backNavigationBehavior
         )
     }
 }
@@ -45,6 +54,7 @@ fun <T : Any> rememberMinimizeSceneStrategy(
  * Behavior mirrors the TwoPaneScene shape from the sample — but instead of two side-by-side panes,
  * the second entry is the minimizable overlay.
  */
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
 class MinimizeScene<T : Any>(
     override val key: Any,
     val sceneEntries: List<NavEntry<T>>,
@@ -52,6 +62,7 @@ class MinimizeScene<T : Any>(
     val minimizeLayoutState: MinimizeLayoutState,
     val type: MinimizeSceneType,
     val onBack: () -> Unit,
+    backNavigationBehavior: BackNavigationBehavior,
 //    override val previousEntries: List<NavEntry<T>>
 ) : Scene<T>
 {
@@ -106,40 +117,116 @@ class MinimizeScene<T : Any>(
         }
         Log.d("MinimizeScene", ": previousValue=$previousValue")
         val scope = rememberCoroutineScope()
-        PredictiveBackHandler(enabled = previousValue != null) { progress ->
+
+        PredictiveBackHandler(
+            enabled =
+                onBackResult.previousState != null ||        // Expanded → Minimized allowed
+                        onBackResult.previousEntries.isNotEmpty()    // Minimized → pop allowed
+        ) { progressState ->
+
+            val previousState = onBackResult.previousState
+            val previousEntries = onBackResult.previousEntries
+            val finalCurrent = minimizeLayoutState.currentValue
+
             try {
-                Log.d("MinimizeScene", "PredictiveBackHandler started. previousValue=$previousValue")
+                // --- Dragging gesture ---
+                progressState.collect { backEvent ->
+                    if (backNavigationBehavior == BackNavigationBehavior.MinimizeThenPop &&
+                        previousState == MinimizeState.Minimized
+                    ) {
+                        val fraction = CubicBezierEasing(0.1f, 0.1f, 0f, 1f)
+                            .transform(backEvent.progress)
 
-                // 1️⃣ Track user drag progress
-                progress.collect { backEvent ->
-                    val fraction = backProgressToStateProgress(
-                        progress = backEvent.progress,
-                        currentValue = minimizeLayoutState.currentValue
-                    )
-                    minimizeLayoutState.seekTo(
-                        fraction = fraction,
-                        target = previousValue!!,
-                        predictiveBack = true
-                    )
+                        minimizeLayoutState.seekTo(
+                            fraction = fraction,
+                            target = MinimizeState.Minimized,
+                            predictiveBack = true
+                        )
+                    }
                 }
 
-                // 2️⃣ Gesture completed → animate to previous state (like BackHandler would)
-                Log.d("MinimizeScene", "PredictiveBackHandler complete → animate to $previousValue")
+                // --- Gesture Completed ---
                 scope.launch {
-                    minimizeLayoutState.animateTo(previousValue!!)
-                }
+                    when (backNavigationBehavior) {
 
-                // 3️⃣ Also handle popping logic (like your existing onBack)
-                repeat(entries.size - onBackResult.previousEntries.size) { onBack() }
+                        BackNavigationBehavior.MinimizeThenPop -> {
+                            if (previousState == MinimizeState.Minimized) {
+                                // Expanded → Minimized
+                                minimizeLayoutState.animateTo(MinimizeState.Minimized)
+                            } else {
+                                // Minimized → pop
+                                repeat(entries.size - previousEntries.size) {
+                                    onBack()
+                                }
+                            }
+                        }
+
+                        BackNavigationBehavior.PopAlways -> {
+                            // ignore minimize, always pop
+                            onBack()
+                        }
+                    }
+                }
 
             } catch (_: CancellationException) {
-                // 4️⃣ Gesture canceled → restore to current state
-                Log.d("MinimizeScene", "PredictiveBackHandler cancelled → animate back to $scaffoldValue")
+                // --- Gesture Cancelled ---
                 scope.launch {
-                    minimizeLayoutState.animateTo(scaffoldValue)
+                    minimizeLayoutState.animateTo(finalCurrent)
                 }
             }
         }
+
+
+
+        /*PredictiveBackHandler(
+            enabled = onBackResult.previousState != null ||      // Expanded → Minimized allowed
+                    onBackResult.previousEntries.isNotEmpty()  // Minimized → pop allowed
+        ) { progressState ->
+
+            val previousState = onBackResult.previousState
+            val previousEntries = onBackResult.previousEntries
+            val finalCurrent = minimizeLayoutState.currentValue
+
+            try {
+                // --- 1) User dragging back gesture ---
+                progressState.collect { backEvent ->
+                    val fraction = CubicBezierEasing(0.1f, 0.1f, 0f, 1f)
+                        .transform(backEvent.progress)
+                    // Expanded → Minimized
+                    when (previousState) {
+                        MinimizeState.Minimized -> {
+                            minimizeLayoutState.seekTo(
+                                fraction = fraction,
+                                target = MinimizeState.Minimized,
+                                predictiveBack = true
+                            )
+                        }
+                        else -> {}
+                    }
+                }
+
+                // --- 2) Gesture Completed ---
+                scope.launch {
+                    // Expanded → Minimized complete
+                    when (previousState) {
+                        MinimizeState.Minimized -> {
+                            minimizeLayoutState.animateTo(MinimizeState.Minimized)
+                        }
+                        else -> {
+                            repeat(entries.size - previousEntries.size) {
+                                onBack() // navigation pop
+                            }
+                        }
+                    }
+                }
+
+            } catch (_: CancellationException) {
+                // --- 3) Gesture Cancelled → restore ---
+                scope.launch {
+                    minimizeLayoutState.animateTo(finalCurrent)
+                }
+            }
+        }*/
         Log.d("MinimizeScene", "MinimizeScene.typeSwitch")
         Log.d(
             "MinimizeScene",
@@ -322,9 +409,11 @@ sealed interface MinimizeSceneType {
  * This mirrors TwoPaneSceneStrategy but uses the two-most-recent entries to render:
  * first = previous entry, second = top (player) entry.
  */
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
 class MinimizeSceneStrategy<T : Any>(
     private val minimizeLayoutState: MinimizeLayoutState,
     private val minimizeType: MinimizeSceneType,
+    private val backNavigationBehavior: BackNavigationBehavior,
 ) : SceneStrategy<T> {
 
     override fun SceneStrategyScope<T>.calculateScene(entries: List<NavEntry<T>>): Scene<T>? {
@@ -341,7 +430,8 @@ class MinimizeSceneStrategy<T : Any>(
             getPaneMetadata = ::getPaneMetadata,
             minimizeLayoutState = minimizeLayoutState,
             type = minimizeType,
-            onBack = onBack
+            onBack = onBack,
+            backNavigationBehavior = backNavigationBehavior
         )
     }
 
