@@ -64,6 +64,10 @@ import com.example.nav3recipes.navscenedecorator.ResponsiveNavigationSceneDecora
 import com.example.nav3recipes.passingarguments.viewmodels.basic.BasicViewModelsActivity
 import com.example.nav3recipes.passingarguments.viewmodels.hilt.HiltViewModelsActivity
 import com.example.nav3recipes.passingarguments.viewmodels.koin.KoinViewModelsActivity
+import com.example.nav3recipes.scenes.collapsiblescene.CollapsibleSceneActivity
+import com.example.nav3recipes.scenes.collapsiblescene.CollapsibleSceneActivity
+import com.example.nav3recipes.material.listdetail.MaterialListDetailActivity
+import com.example.nav3recipes.material.supportingpane.MaterialSupportingPaneActivity
 import com.example.nav3recipes.results.event.ResultEventActivity
 import com.example.nav3recipes.results.state.ResultStateActivity
 import com.example.nav3recipes.retain.RetainActivity
@@ -90,6 +94,7 @@ private val recipes = listOf(
     Recipe("Basic Parcelable", BasicParcelableActivity::class.java),
 
     Heading("Layouts using Scenes"),
+    Recipe("Collapsible Scene", CollapsibleSceneActivity::class.java),
     Recipe("List-detail", ListDetailActivity::class.java),
     Recipe("Two pane", TwoPaneActivity::class.java),
     Recipe("Bottom Sheet", BottomSheetActivity::class.java),
