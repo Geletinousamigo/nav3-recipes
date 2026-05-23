@@ -20,7 +20,6 @@ import androidx.navigation3.scene.SceneStrategyScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-
 @Composable
 fun <T : Any> rememberMinimizeSceneStrategy(
     minimizeLayoutState: MinimizeLayoutState = rememberMinimizeLayoutState(),
@@ -67,14 +66,25 @@ class MinimizeScene<T : Any>(
     val onBackResult: OnBackResult<T> = calculateOnBackResult()
 
     private fun calculateOnBackResult(): OnBackResult<T> {
-        return when (minimizeLayoutState.currentValue) {
-            MinimizeState.Expanded -> OnBackResult(
+        return when {
+            // When there's only one entry, we can't minimize further - just pop out
+            sceneEntries.size <= 1 -> OnBackResult(
+                previousState = null, // pop out of this scene
+                previousEntries = emptyList() // no previous entries when only one left
+            )
+            // When expanded with multiple entries, can minimize
+            minimizeLayoutState.currentValue == MinimizeState.Expanded -> OnBackResult(
                 previousState = MinimizeState.Minimized,
                 previousEntries = sceneEntries.dropLast(1)
             )
-
-            MinimizeState.Minimized -> OnBackResult(
-                previousState = null, // pop out of this scene
+            // When minimized with multiple entries, pop the minimizable entry
+            minimizeLayoutState.currentValue == MinimizeState.Minimized -> OnBackResult(
+                previousState = null, // pop out of minimize mode
+                previousEntries = sceneEntries.dropLast(1)
+            )
+            // Default case (shouldn't happen, but required for exhaustiveness)
+            else -> OnBackResult(
+                previousState = null,
                 previousEntries = sceneEntries.dropLast(1)
             )
         }
@@ -86,7 +96,7 @@ class MinimizeScene<T : Any>(
 
     override val content: @Composable () -> Unit = {
         val scaffoldValue = minimizeLayoutState.currentValue
-        logRecompose("MinimizeScene.content")
+        Log.d("MinimizeScene", "MinimizeScene.content")
         // keep a stable snapshot of entries so popping doesn't create a blank frame
 
         val previousValue = if (minimizeLayoutState.currentValue == MinimizeState.Expanded) {
@@ -98,19 +108,13 @@ class MinimizeScene<T : Any>(
         val scope = rememberCoroutineScope()
         PredictiveBackHandler(enabled = previousValue != null) { progress ->
             try {
+                Log.d("MinimizeScene", "PredictiveBackHandler started. previousValue=$previousValue")
 
-                Log.d(
-                    "MinimizeScene",
-                    "PredictiveBackHandler started. previousValue=$previousValue"
-                )
+                // 1️⃣ Track user drag progress
                 progress.collect { backEvent ->
                     val fraction = backProgressToStateProgress(
                         progress = backEvent.progress,
                         currentValue = minimizeLayoutState.currentValue
-                    )
-                    Log.d(
-                        "MinimizeScene",
-                        "PredictiveBackHandler progress: backEvent.progress=${backEvent.progress}, calculated fraction=$fraction"
                     )
                     minimizeLayoutState.seekTo(
                         fraction = fraction,
@@ -118,19 +122,25 @@ class MinimizeScene<T : Any>(
                         predictiveBack = true
                     )
                 }
-                Log.d("MinimizeScene", "PredictiveBackHandler completed, calling onBack.")
+
+                // 2️⃣ Gesture completed → animate to previous state (like BackHandler would)
+                Log.d("MinimizeScene", "PredictiveBackHandler complete → animate to $previousValue")
+                scope.launch {
+                    minimizeLayoutState.animateTo(previousValue!!)
+                }
+
+                // 3️⃣ Also handle popping logic (like your existing onBack)
                 repeat(entries.size - onBackResult.previousEntries.size) { onBack() }
+
             } catch (_: CancellationException) {
-                Log.d(
-                    "MinimizeScene",
-                    "PredictiveBackHandler cancelled, animating back to $scaffoldValue"
-                )
+                // 4️⃣ Gesture canceled → restore to current state
+                Log.d("MinimizeScene", "PredictiveBackHandler cancelled → animate back to $scaffoldValue")
                 scope.launch {
                     minimizeLayoutState.animateTo(scaffoldValue)
                 }
             }
         }
-        logRecompose("MinimizeScene.typeSwitch")
+        Log.d("MinimizeScene", "MinimizeScene.typeSwitch")
         Log.d(
             "MinimizeScene",
             "MinimizeScene.typeSwitch: previousValue=$previousValue, scaffoldValue=$scaffoldValue"
@@ -142,12 +152,10 @@ class MinimizeScene<T : Any>(
                 detailPlaceholder = { currentContent.detailPlaceholder() }
             )
 
-            is MinimizeSceneType.Floating -> {
-                FloatingMinimizeContent(
-                    minimizeLayoutState = minimizeLayoutState,
-                    detailPlaceholder = { currentContent.detailPlaceholder() }
-                )
-            }
+            is MinimizeSceneType.Floating -> FloatingMinimizeContent(
+                minimizeLayoutState = minimizeLayoutState,
+                detailPlaceholder = { currentContent.detailPlaceholder() }
+            )
         }
     }
 
@@ -173,29 +181,25 @@ class MinimizeScene<T : Any>(
         val lastMainContent = entries.findLast { getPaneMetadata(it) is MainMetadata }
         val lastMinimizableContent = entries.findLast { getPaneMetadata(it) is MinimizableMetadata }
 
-        logRecompose("BottomMinimizeContent")
+        Log.d("MinimizeScene", "BottomMinimizeContent")
 
-        val minimizableContent = remember {
-            movableContentOf<Modifier> { dragModifier ->
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .then(dragModifier)
-                ) {
-                    lastMinimizableContent?.Content() ?: detailPlaceholder()
-                }
+        val minimizableContent: @Composable (Modifier) -> Unit = { dragModifier ->
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .then(dragModifier)
+            ) {
+                lastMinimizableContent?.Content() ?: detailPlaceholder()
             }
         }
 
-        val mainContent = remember {
-            movableContentOf<Dp> { bottomPaddingDp ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = bottomPaddingDp)
-                ) {
-                    lastMainContent?.Content()
-                }
+        val mainContent: @Composable (Dp) -> Unit = { bottomPaddingDp->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = bottomPaddingDp)
+            ) {
+                lastMainContent?.Content()
             }
         }
 
@@ -219,30 +223,25 @@ class MinimizeScene<T : Any>(
         detailPlaceholder: @Composable () -> Unit,
     ) {
         val lastMainContent = entries.findLast { getPaneMetadata(it) is MainMetadata }
-        val lastMinimizableContent =
-            entries.findLast { getPaneMetadata(it) is MinimizePaneMetadata }
+        val lastMinimizableContent = entries.findLast { getPaneMetadata(it) is MinimizePaneMetadata }
 
-        val minimizableContent = remember {
-            movableContentOf<Modifier> { dragModifier ->
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .then(dragModifier)
-                ) {
-                    lastMinimizableContent?.Content() ?: detailPlaceholder()
-                }
+        val minimizableContent: @Composable (Modifier) -> Unit = { dragModifier ->
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .then(dragModifier)
+            ) {
+                lastMinimizableContent?.Content() ?: detailPlaceholder()
             }
         }
 
-        val mainContent = remember {
-            movableContentOf<Dp> { bottomPaddingDp ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = bottomPaddingDp)
-                ) {
-                    lastMainContent?.Content()
-                }
+        val mainContent: @Composable (Dp) -> Unit = { bottomPaddingDp ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = bottomPaddingDp)
+            ) {
+                lastMainContent?.Content()
             }
         }
 
@@ -313,15 +312,7 @@ sealed interface MinimizeSceneType {
     fun isBottom() = this is Bottom
 }
 
-data class SinglePaneScene<T : Any>(
-    override val key: Any,
-    val entry: NavEntry<T>,
-    override val previousEntries: List<NavEntry<T>>,
-) : Scene<T> {
-    override val entries: List<NavEntry<T>> = listOf(entry)
-
-    override val content: @Composable () -> Unit = { entry.Content() }
-}
+// Removed SinglePaneScene as it is not used
 
 /**
  * SceneStrategy that returns a MinimizeVideoScene when:
@@ -338,36 +329,19 @@ class MinimizeSceneStrategy<T : Any>(
 
     override fun SceneStrategyScope<T>.calculateScene(entries: List<NavEntry<T>>): Scene<T>? {
         if (entries.isEmpty()) return null
-        val lastPaneMetadata = getPaneMetadata(entries.last()) ?: return null
-        val sceneKey = lastPaneMetadata.sceneKey
-        Log.d ("MinimizeSceneStrategy", "calculateScene: sceneKey = $sceneKey")
         Log.d("MinimizeSceneStrategy", "calculateScene: minimizeLayoutState = ${minimizeLayoutState.currentValue}")
-        // Case 1: Multiple entries (normal minimize mode)
-        Log.d("MinimizeSceneStrategy", "calculateScene: is entries.size > 2=${entries.size >= 2}")
-        if (entries.size >= 2) {
-            val firstMeta = getPaneMetadata(entries[entries.size - 2])
-            val secondMeta =
-                getPaneMetadata(entries.last())
-            if (firstMeta is MainMetadata && secondMeta is MinimizableMetadata) {
-                val first = entries[entries.size - 2]
-                val second = entries.last()
-                return MinimizeScene(
-                    key = "sceneKey",
-                    sceneEntries = listOf(first, second),
-                    getPaneMetadata = ::getPaneMetadata,
-                    minimizeLayoutState = minimizeLayoutState,
-                    type = minimizeType,
-                    onBack = onBack
-                )
-            }
-        } // Case 2: Single entry — show it directly (avoid null)
-        Log.d("MinimizeSceneStrategy", "calculateScene: entries=${entries}")
-        Log.d("MinimizeSceneStrategy", "calculateScene: I am at case 2, entries size=${entries.size}")
-        val singleEntry = entries.last()
-        return SinglePaneScene(
+
+        // Always return MinimizeScene to keep it alive, regardless of entry count
+        Log.d("MinimizeSceneStrategy", "calculateScene: entries.size = ${entries.size}")
+
+        // For single entry, we'll still create MinimizeScene but it will handle the single-entry case internally
+        return MinimizeScene(
             key = "sceneKey",
-            entry = singleEntry,
-            previousEntries = entries.dropLast(1)
+            sceneEntries = entries, // Pass all entries, let MinimizeScene handle single vs multiple
+            getPaneMetadata = ::getPaneMetadata,
+            minimizeLayoutState = minimizeLayoutState,
+            type = minimizeType,
+            onBack = onBack
         )
     }
 
